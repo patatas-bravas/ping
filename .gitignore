@@ -1,4 +1,4 @@
 .clangd
 obj
-print
+ping
 note.md
