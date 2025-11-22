@@ -1,7 +1,7 @@
 NAME = ping
-CC = cc
-CFLAGS = -Wall -Wextra -Werror -O2 -I$(DIR_INCLUDE)
-LDFLAGS = -O2
+CC = cc 
+CFLAGS = -g -Wall -Wextra -Werror -I$(DIR_INCLUDE)
+LDFLAGS = -lm
 
 DIR_INCLUDE = include
 
@@ -13,7 +13,7 @@ FILE_OBJ = $(FILE_SRC:.c=.o)
 OBJS = $(addprefix $(DIR_OBJ)/, $(FILE_OBJ))
 
 all: $(NAME)
-	./$< www.google.com
+	sudo ./$< www.google.com
 
 build: $(NAME)
 

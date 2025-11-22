@@ -1,7 +1,6 @@
-#include <arpa/inet.h>
-#include <netinet/in.h>
+#include <float.h>
 #include <stdio.h>
-#include <unistd.h>
+#include <string.h>
 
 #include "ping.h"
 
@@ -12,24 +11,21 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  char *hostname = argv[argc - 1];
-  char ipname[INET_ADDRSTRLEN];
+  ping_stats stats;
+  memset(&stats, 0, sizeof(stats));
+  stats.hostname = argv[argc - 1];
+  stats.rtt.min = FLT_MAX;
+  stats.rtt.max = FLT_MIN;
+
   struct sockaddr_in addr_dest;
-  if (dns_resolver(hostname, ipname, &addr_dest) == false)
+  if (dns_resolver(stats.hostname, stats.ipname, &addr_dest) == FATAL_ERR)
     return 1;
 
-  int socket_fd = init_icmp_socket();
-  if (socket_fd == -1)
+  socket_t fd = init_icmp_socket();
+  if (fd == -1)
     return 2;
 
-  ping_stats data = {.hostname = hostname,
-                     .ipname = ipname,
-                     .bytes_read = 0,
-                     .sequence = 0,
-                     .ttl = 0,
-                     .pkt_size = ICMP_HEADER_SIZE + ICMP_PAYLOAD_SIZE + IP_HEADER_SIZE};
+  ping(fd, &addr_dest, &stats);
 
-  ping(socket_fd, &addr_dest, &data);
-
-  close(socket_fd);
+  close(fd);
 }

@@ -1,9 +1,9 @@
 #include <arpa/inet.h>
-#include <linux/errqueue.h>
+#include <errno.h>
 #include <netdb.h>
-#include <netinet/in.h>
 #include <netinet/ip_icmp.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -12,15 +12,16 @@
 #include <unistd.h>
 
 #include "ping.h"
+#include "types.h"
 
-bool run = true;
+uint8_t run = 1;
 
-int init_icmp_socket() {
+socket_t init_icmp_socket() {
 
-  int fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_ICMP);
+  socket_t fd = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
   if (fd < 0) {
     perror("[ERROR][socket]");
-    return -1;
+    return FATAL_ERR;
   }
 
   struct timeval timeout;
@@ -29,33 +30,20 @@ int init_icmp_socket() {
   if (setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(struct timeval)) == -1) {
     perror("[ERROR][setsockopt][SO_RCVTIMEO]");
     close(fd);
-    return -1;
+    return FATAL_ERR;
   }
 
   uint8_t size_ttl = TTL_UNIX_SIZE;
   if (setsockopt(fd, IPPROTO_IP, IP_TTL, &size_ttl, sizeof(size_ttl)) == -1) {
     perror("[ERROR][setsockopt][IP_TTL]");
     close(fd);
-    return -1;
-  }
-
-  uint8_t on = 1;
-  if (setsockopt(fd, IPPROTO_IP, IP_RECVTTL, &on, sizeof(on)) == -1) {
-    perror("[ERROR][setsockopt][IP_RECVTTL]");
-    close(fd);
-    return -1;
-  }
-
-  if (setsockopt(fd, IPPROTO_IP, IP_RECVERR, &on, sizeof(on)) == -1) {
-    perror("[ERROR][setsockopt][IP_RECVERR]");
-    close(fd);
-    return -1;
+    return FATAL_ERR;
   }
 
   return fd;
 }
 
-bool dns_resolver(char *hostname, char *ipname, struct sockaddr_in *dest_addr) {
+int8_t dns_resolver(const char *hostname, char *ipname, struct sockaddr_in *dest_addr) {
 
   struct addrinfo info;
   struct addrinfo *result;
@@ -64,97 +52,107 @@ bool dns_resolver(char *hostname, char *ipname, struct sockaddr_in *dest_addr) {
 
   if (getaddrinfo(hostname, NULL, &info, &result) != 0) {
     fprintf(stderr, "[ERROR][ping]: %s: No address associated with hostname\n", hostname);
-    return false;
+    return FATAL_ERR;
   }
 
   *dest_addr = *(struct sockaddr_in *)result->ai_addr;
   freeaddrinfo(result);
 
-  if (inet_ntop(AF_INET, &dest_addr->sin_addr, ipname, 255) == NULL) {
+  if (inet_ntop(AF_INET, &dest_addr->sin_addr, ipname, INET_ADDRSTRLEN) == NULL) {
     perror("[ERROR][inet_ntop]");
-    return false;
+    return FATAL_ERR;
   }
 
-  return true;
+  return 0;
 }
 
-bool send_pkt(int socket_fd, struct sockaddr_in *dest_addr, ping_stats *data) {
+int8_t send_pkt(const socket_t fd, struct sockaddr_in *dest_addr, ping_stats *stats) {
 
   icmppkt pkt;
-
   memset(&pkt, 0, sizeof(pkt));
   memset(&pkt.payload, 'M', sizeof(pkt.payload));
   pkt.header.type = ICMP_ECHO;
   pkt.header.un.echo.id = getpid();
-  pkt.header.un.echo.sequence = data->sequence++;
-  pkt.header.checksum = checksum(&pkt, sizeof(pkt));
-  if (sendto(socket_fd, &pkt, sizeof(pkt), 0, (struct sockaddr *)dest_addr, sizeof(struct sockaddr_in)) == -1) {
-    perror("[ERROR][setsockopt]");
-    return false;
+  pkt.header.un.echo.sequence = stats->send_pkt++;
+
+  if (sendto(fd, &pkt, sizeof(pkt), 0, (struct sockaddr *)dest_addr, sizeof(struct sockaddr_in)) == -1) {
+    perror("[ERROR][sendto]");
+    return FATAL_ERR;
   }
-  return true;
+
+  return 0;
 }
 
-bool recv_pkt(int socket_fd, ping_stats *data) {
+int8_t recv_pkt(const socket_t fd, ping_stats *stats) {
+  char buffer[ICMP_PKT_SIZE];
+  struct sockaddr_in recv_addr;
+  socklen_t recv_addr_size = sizeof(struct sockaddr_in);
 
-  char buffer[ICMP_HEADER_SIZE + ICMP_PAYLOAD_SIZE];
-  struct msghdr msg;
-  struct iovec io;
-  char control[CMSG_SPACE(sizeof(struct sock_extended_err) + sizeof(int))];
-  io.iov_base = buffer;
-  io.iov_len = sizeof(buffer);
-  memset(&msg, 0, sizeof(msg));
-  msg.msg_iov = &io;
-  msg.msg_iovlen = 1;
-  msg.msg_control = control;
-  msg.msg_controllen = sizeof(control);
-
-  data->bytes_read = recvmsg(socket_fd, &msg, MSG_ERRQUEUE);
-  if (data->bytes_read == -1) {
-    perror("[ERROR][recvmsg]");
-    return false;
-  }
-
-  struct cmsghdr *cmsg;
-  for (cmsg = CMSG_FIRSTHDR(&msg); cmsg != NULL; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
-    if (cmsg->cmsg_level == IPPROTO_IP) {
-      {
-        switch (cmsg->cmsg_type) {
-        case IP_TTL:
-          data->ttl = *CMSG_DATA(cmsg);
-          printf("[DEBUG][IP_TTL]\n");
-          break;
-        case IP_RECVERR:
-          printf("[DEBUG][IP_RECVERR]\n");
-          break;
-        }
-      }
+  stats->bytes_read = recvfrom(fd, buffer, sizeof(buffer), 0, (struct sockaddr *)&recv_addr, &recv_addr_size);
+  if (stats->bytes_read == -1) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      return WARNING_ERR;
+    } else {
+      perror("[ERROR][recvfrom]");
+      return FATAL_ERR;
     }
   }
-  return true;
+  struct iphdr *ip = (struct iphdr *)buffer;
+  stats->ttl = ip->ttl;
+  stats->recv_hdr_pkt = *(struct icmphdr *)(buffer + IP_HEADER_SIZE);
+  if (handle_icmp_hdr(buffer, stats) == IGNORE_ERR)
+    return IGNORE_ERR;
+
+  if (inet_ntop(AF_INET, &recv_addr.sin_addr, stats->ipname, INET_ADDRSTRLEN) == NULL) {
+    perror("[ERROR][inet_ntop]");
+    return FATAL_ERR;
+  }
+  return 0;
 }
 
-void sigint_handler(int) { run = false; }
+int8_t handle_icmp_hdr(char *buffer, ping_stats *stats) {
+  pid_t recv_pid = 0;
 
-bool ping(int socket_fd, struct sockaddr_in *dest_addr, ping_stats *data) {
+  if (stats->recv_hdr_pkt.type == ICMP_ECHOREPLY) {
+    recv_pid = stats->recv_hdr_pkt.un.echo.id;
+  } else if (stats->recv_hdr_pkt.type == ICMP_TIME_EXCEEDED || stats->recv_hdr_pkt.type == ICMP_DEST_UNREACH) {
+    struct icmphdr *err_hdr = (struct icmphdr *)(buffer + 48);
+    recv_pid = err_hdr->un.echo.id;
+  }
+  if (recv_pid != getpid())
+    return IGNORE_ERR;
+  if (stats->recv_hdr_pkt.type == ICMP_ECHOREPLY)
+    stats->recv_pkt++;
+  return 0;
+}
+
+void sigint_handler(int code) { run = code - code; }
+
+int8_t ping(const socket_t fd, struct sockaddr_in *dest_addr, ping_stats *stats) {
 
   struct timespec start, end;
-  struct timespec start_program, end_program;
-  clock_gettime(CLOCK_MONOTONIC, &start_program);
   signal(SIGINT, sigint_handler);
-  print_header_ping(data);
+  print_header(stats);
   while (run) {
     clock_gettime(CLOCK_MONOTONIC, &start);
-    if (send_pkt(socket_fd, dest_addr, data) == false)
-      return false;
-    if (recv_pkt(socket_fd, data) == false)
-      return false;
+
+    if (send_pkt(fd, dest_addr, stats) == FATAL_ERR)
+      return FATAL_ERR;
+
+    switch (recv_pkt(fd, stats)) {
+    case FATAL_ERR:
+      return FATAL_ERR;
+    case IGNORE_ERR:
+      continue;
+    }
+
     clock_gettime(CLOCK_MONOTONIC, &end);
-    print_body_ping(data, diff_ms(start, end));
+    double latency = diff_ms(start, end);
+    print_body(stats, latency);
+    update_rtt(&stats->rtt, latency);
     sleep(1);
   }
-  clock_gettime(CLOCK_MONOTONIC, &end_program);
-  print_footer_ping(data, diff_ms(start_program, end_program));
+  print_footer(stats);
 
-  return true;
+  return 0;
 }

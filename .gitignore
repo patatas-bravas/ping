@@ -1,5 +1,8 @@
 .clangd
+.clang-format
+.cache
 obj
 ping
 note.md
 vgcore*
+compile_commands.json
