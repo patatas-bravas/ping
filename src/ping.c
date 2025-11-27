@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <asm-generic/errno-base.h>
 #include <assert.h>
+#include <bits/getopt_core.h>
 #include <bits/time.h>
 #include <errno.h>
 #include <float.h>
@@ -125,7 +126,7 @@ int8_t handle_opt(int argc, char **argv) {
       break;
     case 'h':
     case '?':
-      printf("Usage: ping [OPTION...] HOST ...\n");
+      printf("Usage: ping [OPTION...] HOST \n");
       printf("Send ICMP ECHO_REQUEST packets to network hosts.\n\n");
       printf("-?, -h, --help             give this help list\n");
       printf("-v, --verbose              verbose output\n");
@@ -140,6 +141,15 @@ int8_t handle_opt(int argc, char **argv) {
       fprintf(stderr, "Try 'ping --help' for more information.\n");
       return FATAL_ERR;
     }
+  }
+
+  int remaining_arg = 0;
+  for (int i = optind; i < argc; i++) {
+    remaining_arg++;
+  }
+  if (remaining_arg != 1) {
+    fprintf(stderr, "Try 'ping --help' for more information.\n");
+    return FATAL_ERR;
   }
 
   return 0;
@@ -414,7 +424,6 @@ int8_t ping(const socket_t fd, struct sockaddr_in *dest_addr) {
       break;
 
     nanosleep(&interval, NULL);
-
   }
   print_footer();
   return 0;
