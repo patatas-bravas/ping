@@ -1,4 +1,4 @@
-NAME = ping
+NAME = ft_ping
 CC = cc 
 CFLAGS = -O2 -Wall -Wextra -Werror -I$(DIR_INCLUDE)
 LDFLAGS = -lm -O2

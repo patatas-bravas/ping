@@ -33,7 +33,7 @@ int main(int argc, char *argv[]) {
   if (fd == FATAL_ERR)
     return 3;
 
-  if (ping(fd, &addr_dest) == FATAL_ERR) {
+  if (ft_ping(fd, &addr_dest) == FATAL_ERR) {
 
     close(fd);
     return 4;

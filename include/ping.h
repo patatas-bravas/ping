@@ -63,4 +63,4 @@ extern icmp_rtt rtt;
 int8_t handle_opt(int argc, char **argv);
 int8_t dns_resolver(struct sockaddr_in *addr_dest);
 socket_t init_icmp_socket();
-int8_t ping(socket_t fd, struct sockaddr_in *addr_dest);
+int8_t ft_ping(socket_t fd, struct sockaddr_in *addr_dest);

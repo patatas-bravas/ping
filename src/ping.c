@@ -77,7 +77,7 @@ int8_t handle_opt(int argc, char **argv) {
       opt.count = 1;
       opt.count_arg = strtol(optarg, &endptr, 10);
       if (*endptr != '\0') {
-        fprintf(stderr, "[ERROR][ping]: invalid value %s\n", optarg);
+        fprintf(stderr, "[ERROR][ft_ping]: invalid value %s\n", optarg);
         return FATAL_ERR;
       }
 
@@ -85,17 +85,17 @@ int8_t handle_opt(int argc, char **argv) {
 
     case 't':
       if (strcmp("0", optarg) == 0) {
-        fprintf(stderr, "[ERROR][ping]: option value too small: 0\n");
+        fprintf(stderr, "[ERROR][ft_ping]: option value too small: 0\n");
         return FATAL_ERR;
       }
       opt.ttl = 1;
       opt.ttl_arg = strtol(optarg, &endptr, 10);
       if (*endptr != '\0') {
-        fprintf(stderr, "[ERROR][ping]: invalid value %s\n", optarg);
+        fprintf(stderr, "[ERROR][ft_ping]: invalid value %s\n", optarg);
         return FATAL_ERR;
       }
       if (opt.ttl_arg < 1 || opt.ttl_arg > 255 || errno == ERANGE) {
-        fprintf(stderr, "[ERROR][ping]: option value too big: %s\n", optarg);
+        fprintf(stderr, "[ERROR][ft_ping]: option value too big: %s\n", optarg);
         return FATAL_ERR;
       }
       break;
@@ -104,7 +104,7 @@ int8_t handle_opt(int argc, char **argv) {
       opt.interval = 1;
       opt.interval_arg = strtof(optarg, &endptr);
       if (opt.interval_arg < 0.2 || errno == ERANGE || *endptr != '\0') {
-        fprintf(stderr, "[ERROR][ping]: option value too small: %s\n", optarg);
+        fprintf(stderr, "[ERROR][ft_ping]: option value too small: %s\n", optarg);
         return FATAL_ERR;
       }
 
@@ -113,11 +113,11 @@ int8_t handle_opt(int argc, char **argv) {
       opt.timeout = 1;
       opt.timeout_arg = atof(optarg);
       if (opt.timeout_arg == 0) {
-        fprintf(stderr, "[ERROR][ping]: option value too small: %s\n", optarg);
+        fprintf(stderr, "[ERROR][ft_ping]: option value too small: %s\n", optarg);
         return FATAL_ERR;
       }
       if (opt.timeout_arg < 0 || errno == ERANGE || opt.timeout_arg > FLT_MAX) {
-        fprintf(stderr, "[ERROR][ping]: option value too big: %s\n", optarg);
+        fprintf(stderr, "[ERROR][ft_ping]: option value too big: %s\n", optarg);
         return FATAL_ERR;
       }
       break;
@@ -126,7 +126,7 @@ int8_t handle_opt(int argc, char **argv) {
       break;
     case 'h':
     case '?':
-      printf("Usage: ping [OPTION...] HOST \n");
+      printf("Usage: ft_ping [OPTION...] HOST \n");
       printf("Send ICMP ECHO_REQUEST packets to network hosts.\n\n");
       printf("-?, -h, --help             give this help list\n");
       printf("-v, --verbose              verbose output\n");
@@ -138,7 +138,7 @@ int8_t handle_opt(int argc, char **argv) {
       return FATAL_ERR;
 
     default:
-      fprintf(stderr, "Try 'ping --help' for more information.\n");
+      fprintf(stderr, "Try 'ft_ping --help' for more information.\n");
       return FATAL_ERR;
     }
   }
@@ -268,7 +268,7 @@ int8_t dns_resolver(struct sockaddr_in *dest_addr) {
   info.ai_family = AF_INET;
 
   if (getaddrinfo(hostname, NULL, &info, &result) != 0) {
-    fprintf(stderr, "[ERROR][ping]: %s: No address associated with hostname\n", hostname);
+    fprintf(stderr, "[ERROR][ft_ping]: %s: No address associated with hostname\n", hostname);
     return FATAL_ERR;
   }
 
@@ -382,7 +382,7 @@ int8_t timeout_pass(struct timespec global_start) {
   }
   return 0;
 }
-int8_t ping(const socket_t fd, struct sockaddr_in *dest_addr) {
+int8_t ft_ping(const socket_t fd, struct sockaddr_in *dest_addr) {
 
   struct timespec start, end, interval, global_start;
   if (opt.interval)
