@@ -7,25 +7,38 @@
 int main(int argc, char *argv[]) {
 
   if (argc == 1) {
-    fprintf(stderr, "[WARNING][ping]: usage error: Destination address required\n");
+    fprintf(stderr, "[WARNING][ping]: missing host operand\n");
     return 0;
   }
 
-  ping_stats stats;
-  memset(&stats, 0, sizeof(stats));
-  stats.hostname = argv[argc - 1];
-  stats.rtt.min = FLT_MAX;
-  stats.rtt.max = FLT_MIN;
+  hostname = argv[argc - 1];
+  memset(&rtt, 0, sizeof(rtt));
+  memset(&opt, 0, sizeof(ping_opt));
+  rtt.min = FLT_MAX;
+  rtt.max = FLT_MIN;
+  run = 1;
+  err = 1;
+  send_packet = 0;
+  recv_packet = 0;
+  bytes_read = 0;
 
-  struct sockaddr_in addr_dest;
-  if (dns_resolver(stats.hostname, stats.ipname, &addr_dest) == FATAL_ERR)
+  if (handle_opt(argc, argv) == FATAL_ERR)
     return 1;
 
-  socket_t fd = init_icmp_socket();
-  if (fd == -1)
+  struct sockaddr_in addr_dest;
+  if (dns_resolver(&addr_dest) == FATAL_ERR)
     return 2;
 
-  ping(fd, &addr_dest, &stats);
+  socket_t fd = init_icmp_socket();
+  if (fd == FATAL_ERR)
+    return 3;
+
+  if (ping(fd, &addr_dest) == FATAL_ERR) {
+
+    close(fd);
+    return 4;
+  }
 
   close(fd);
+  return 0;
 }

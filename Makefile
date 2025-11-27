@@ -1,21 +1,19 @@
 NAME = ping
 CC = cc 
-CFLAGS = -g -Wall -Wextra -Werror -I$(DIR_INCLUDE)
-LDFLAGS = -lm
+CFLAGS = -O2 -Wall -Wextra -Werror -I$(DIR_INCLUDE)
+LDFLAGS = -lm -O2
 
 DIR_INCLUDE = include
 
 DIR_SRC = src
-FILE_SRC = main.c ping.c utils.c printer.c
+FILE_SRC = main.c ping.c 
 
 DIR_OBJ = obj
 FILE_OBJ = $(FILE_SRC:.c=.o)
 OBJS = $(addprefix $(DIR_OBJ)/, $(FILE_OBJ))
 
 all: $(NAME)
-	sudo ./$< www.google.com
 
-build: $(NAME)
 
 $(NAME): $(OBJS)
 	$(CC) $^ $(LDFLAGS) -o $@
@@ -34,4 +32,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all build clean fclean re
+.PHONY: all clean fclean re
