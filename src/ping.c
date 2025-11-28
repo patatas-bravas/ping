@@ -1,18 +1,10 @@
 #include <arpa/inet.h>
-#include <asm-generic/errno-base.h>
-#include <assert.h>
-#include <bits/getopt_core.h>
-#include <bits/time.h>
 #include <errno.h>
 #include <float.h>
 #include <getopt.h>
-#include <inttypes.h>
 #include <math.h>
 #include <netdb.h>
-#include <netinet/ip.h>
-#include <netinet/ip_icmp.h>
 #include <signal.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -148,7 +140,7 @@ int8_t handle_opt(int argc, char **argv) {
     remaining_arg++;
   }
   if (remaining_arg != 1) {
-    fprintf(stderr, "Try 'ping --help' for more information.\n");
+    fprintf(stderr, "Try 'ft_ping --help' for more information.\n");
     return FATAL_ERR;
   }
 
@@ -283,6 +275,21 @@ int8_t dns_resolver(struct sockaddr_in *dest_addr) {
   return 0;
 }
 
+uint16_t checksum(void *data, size_t size) {
+  unsigned short *ptr = (unsigned short *)data;
+  uint32_t sum = 0;
+  while (size > 1) {
+    sum += *ptr;
+    size -= 2;
+    ptr++;
+  }
+  if (size == 1)
+    sum += *(unsigned char *)ptr;
+  sum = (sum >> 16) + (sum & 0xFFFF);
+  sum += (sum >> 16);
+  return (uint16_t)~sum;
+}
+
 int8_t send_pkt(const socket_t fd, struct sockaddr_in *dest_addr) {
 
   icmppkt pkt;
@@ -291,6 +298,7 @@ int8_t send_pkt(const socket_t fd, struct sockaddr_in *dest_addr) {
   pkt.header.type = ICMP_ECHO;
   pkt.header.un.echo.id = getpid();
   pkt.header.un.echo.sequence = send_packet++;
+  pkt.header.checksum = checksum(&pkt, sizeof(pkt));
 
   if (sendto(fd, &pkt, sizeof(pkt), 0, (struct sockaddr *)dest_addr, sizeof(struct sockaddr_in)) == -1) {
     perror("[ERROR][sendto]");
@@ -372,16 +380,6 @@ void sigint_handler(int code) {
   run = 0;
 }
 
-int8_t timeout_pass(struct timespec global_start) {
-  static struct timespec global_end;
-  if (opt.timeout) {
-    clock_gettime(CLOCK_MONOTONIC, &global_end);
-    double elapsed = diff_ms(global_start, global_end) / 1000;
-    if (elapsed >= opt.timeout_arg)
-      return 1;
-  }
-  return 0;
-}
 int8_t ft_ping(const socket_t fd, struct sockaddr_in *dest_addr) {
 
   struct timespec start, end, interval, global_start;
@@ -401,17 +399,12 @@ int8_t ft_ping(const socket_t fd, struct sockaddr_in *dest_addr) {
     if (send_pkt(fd, dest_addr) == FATAL_ERR)
       return FATAL_ERR;
 
-    if (timeout_pass(global_start))
-      break;
-
-    int8_t rt = recv_pkt(fd);
-    if (rt == FATAL_ERR)
-      return rt;
-    else if (rt == IGNORE_ERR)
+    int8_t n = recv_pkt(fd);
+    if (n == FATAL_ERR)
+      return FATAL_ERR;
+    else if (n == IGNORE_ERR)
       continue;
-    else if (rt == VALID_RECV) {
-      if (timeout_pass(global_start))
-        break;
+    else if (n == VALID_RECV) {
       clock_gettime(CLOCK_MONOTONIC, &end);
       double latency = diff_ms(start, end);
       update_rtt(latency);
@@ -419,8 +412,6 @@ int8_t ft_ping(const socket_t fd, struct sockaddr_in *dest_addr) {
     }
 
     if (opt.count && (size_t)opt.count_arg == send_packet)
-      break;
-    if (timeout_pass(global_start))
       break;
 
     nanosleep(&interval, NULL);
