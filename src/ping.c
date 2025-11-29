@@ -1,9 +1,9 @@
 #include <arpa/inet.h>
 #include <errno.h>
-#include <float.h>
 #include <getopt.h>
 #include <math.h>
 #include <netdb.h>
+#include <netinet/ip_icmp.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -22,17 +22,16 @@ char ipname[INET_ADDRSTRLEN];
 ssize_t bytes_read;
 size_t send_packet;
 size_t recv_packet;
+char *buffer;
 uint8_t err;
-char buffer[RECV_BUFFER_SIZE];
 ping_opt opt;
 icmp_rtt rtt;
 
-double diff_ms(struct timespec start, struct timespec end) {
-
+double diff_ms(const struct timespec start, const struct timespec end) {
   return (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1000000.0;
 }
 
-void update_rtt(double latency) {
+void update_rtt(const double latency) {
   static size_t count;
   static double sum_of_square_delta;
   count++;
@@ -55,11 +54,11 @@ int8_t handle_opt(int argc, char **argv) {
   int option_index = 0;
 
   struct option options[] = {{"verbose", no_argument, 0, 'v'},        {"ttl", required_argument, 0, 't'},
-                             {"interval", required_argument, 0, 'i'}, {"timeout", required_argument, 0, 'w'},
+                             {"interval", required_argument, 0, 'i'}, {"size", required_argument, 0, 's'},
                              {"quiet", no_argument, 0, 'q'},          {"count", required_argument, 0, 'c'},
                              {"help", no_argument, 0, 'h'},           {0, 0, 0, 0}};
 
-  while ((current_opt = getopt_long(argc, argv, "v?hqc:t:i:w:", options, &option_index)) != -1) {
+  while ((current_opt = getopt_long(argc, argv, "v?hqc:t:i:s:", options, &option_index)) != -1) {
     switch (current_opt) {
     case 'v':
       opt.verbose = 1;
@@ -72,7 +71,6 @@ int8_t handle_opt(int argc, char **argv) {
         fprintf(stderr, "[ERROR][ft_ping]: invalid value %s\n", optarg);
         return FATAL_ERR;
       }
-
       break;
 
     case 't':
@@ -99,16 +97,11 @@ int8_t handle_opt(int argc, char **argv) {
         fprintf(stderr, "[ERROR][ft_ping]: option value too small: %s\n", optarg);
         return FATAL_ERR;
       }
-
       break;
-    case 'w':
-      opt.timeout = 1;
-      opt.timeout_arg = atof(optarg);
-      if (opt.timeout_arg == 0) {
-        fprintf(stderr, "[ERROR][ft_ping]: option value too small: %s\n", optarg);
-        return FATAL_ERR;
-      }
-      if (opt.timeout_arg < 0 || errno == ERANGE || opt.timeout_arg > FLT_MAX) {
+
+    case 's':
+      opt.size = strtol(optarg, &endptr, 10);
+      if (errno == ERANGE || opt.size > 65399 || opt.size < 0) {
         fprintf(stderr, "[ERROR][ft_ping]: option value too big: %s\n", optarg);
         return FATAL_ERR;
       }
@@ -124,8 +117,8 @@ int8_t handle_opt(int argc, char **argv) {
       printf("-v, --verbose              verbose output\n");
       printf("-c, --count=NUMBER         stop after sending NUMBER packets\n");
       printf("-t, --ttl=N                specify N as time-to-live\n");
-      printf("-i, --interval=NUMBER      wait NUMBER seconds between sending each packet");
-      printf("-w, --timeout=N            stop after N seconds\n");
+      printf("-i, --interval=NUMBER      wait NUMBER seconds between sending each packet\n");
+      printf("-s, --size=NUMBER          send NUMBER data octets\n");
       printf("-q, --quiet                quiet output\n");
       return FATAL_ERR;
 
@@ -150,12 +143,12 @@ int8_t handle_opt(int argc, char **argv) {
 void print_header() {
   pid_t pid = getpid();
   if (opt.verbose)
-    printf("PING %s (%s): %d context bytes, id 0x%x = %d\n", hostname, ipname, ICMP_PAYLOAD_SIZE, pid, pid);
+    printf("PING %s (%s): %ld context bytes, id 0x%x = %d\n", hostname, ipname, opt.size, pid, pid);
   else
-    printf("PING %s (%s): %d context bytes\n", hostname, ipname, ICMP_PAYLOAD_SIZE);
+    printf("PING %s (%s): %ld context bytes\n", hostname, ipname, opt.size);
 }
 
-void print_body(float time) {
+void print_body(const float time) {
   struct iphdr ip = *(struct iphdr *)buffer;
   struct icmphdr icmp = *(struct icmphdr *)(buffer + ip.ihl * 4);
   uint8_t ttl = ip.ttl;
@@ -182,6 +175,7 @@ void print_body(float time) {
       break;
     }
   }
+
   if (opt.verbose && err) {
     struct iphdr ip_err = *(struct iphdr *)(buffer + (ip.ihl * 4) + ICMP_HEADER_SIZE);
     struct icmphdr icmp_err = *(struct icmphdr *)(buffer + (ip.ihl * 4) + ICMP_HEADER_SIZE + (ip_err.ihl * 4));
@@ -211,7 +205,7 @@ void print_body(float time) {
            src_ip, dst_ip);
 
     printf("ICMP: type %d, code %d, size %ld, id 0x%04x, seq 0x%04x\n", icmp_err.type, icmp_err.code,
-           ICMP_HEADER_SIZE + ICMP_PAYLOAD_SIZE, icmp_err.un.echo.id, icmp_err.un.echo.sequence);
+           ICMP_HEADER_SIZE + opt.size, icmp_err.un.echo.id, icmp_err.un.echo.sequence);
   }
 }
 
@@ -275,8 +269,8 @@ int8_t dns_resolver(struct sockaddr_in *dest_addr) {
   return 0;
 }
 
-uint16_t checksum(void *data, size_t size) {
-  unsigned short *ptr = (unsigned short *)data;
+uint16_t checksum(const void *addr, size_t size) {
+  unsigned short *ptr = (unsigned short *)addr;
   uint32_t sum = 0;
   while (size > 1) {
     sum += *ptr;
@@ -292,19 +286,29 @@ uint16_t checksum(void *data, size_t size) {
 
 int8_t send_pkt(const socket_t fd, struct sockaddr_in *dest_addr) {
 
-  icmppkt pkt;
-  memset(&pkt, 0, sizeof(pkt));
-  memset(&pkt.payload, 'M', sizeof(pkt.payload));
-  pkt.header.type = ICMP_ECHO;
-  pkt.header.un.echo.id = getpid();
-  pkt.header.un.echo.sequence = send_packet++;
-  pkt.header.checksum = checksum(&pkt, sizeof(pkt));
-
-  if (sendto(fd, &pkt, sizeof(pkt), 0, (struct sockaddr *)dest_addr, sizeof(struct sockaddr_in)) == -1) {
-    perror("[ERROR][sendto]");
+  size_t size_pkt = opt.size + ICMP_HEADER_SIZE;
+  uint8_t *pkt = malloc(size_pkt * sizeof(char));
+  if (pkt == NULL) {
+    perror("[ERROR][malloc]");
     return FATAL_ERR;
   }
 
+  memset(pkt, 0, size_pkt);
+  struct icmphdr *hdr = (struct icmphdr *)pkt;
+  char *payload = (char *)pkt + ICMP_HEADER_SIZE;
+  memset(payload, 'M', opt.size);
+  hdr->type = ICMP_ECHO;
+  hdr->un.echo.id = getpid();
+  hdr->un.echo.sequence = send_packet++;
+  hdr->checksum = checksum(pkt, size_pkt);
+
+  if (sendto(fd, pkt, size_pkt, 0, (struct sockaddr *)dest_addr, sizeof(struct sockaddr_in)) == -1) {
+    perror("[ERROR][sendto]");
+    free(pkt);
+    return FATAL_ERR;
+  }
+
+  free(pkt);
   return 0;
 }
 
@@ -321,13 +325,12 @@ int8_t handle_icmp_hdr() {
     recv_pid = err_hdr.un.echo.id;
   }
 
-  if (recv_pid != getpid()) {
+  if (recv_pid != getpid()) 
     return IGNORE_ERR;
-  }
+
   if (icmp.type == ICMP_ECHOREPLY) {
     recv_packet++;
     err = 0;
-
   } else
     err = 1;
 
@@ -349,8 +352,7 @@ int8_t recv_pkt(const socket_t fd) {
       return IGNORE_ERR;
     perror("[ERROR][select]");
     return FATAL_ERR;
-  }
-  if (n == 0)
+  } else if (n == 0)
     return NO_RECV;
 
   struct sockaddr_in recv_addr;
@@ -359,12 +361,12 @@ int8_t recv_pkt(const socket_t fd) {
   if (bytes_read == -1) {
     if (errno == EINTR)
       return IGNORE_ERR;
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+    else if (errno == EAGAIN || errno == EWOULDBLOCK)
       return NO_RECV;
-    } else {
+    else
       return FATAL_ERR;
-    }
   }
+
   if (handle_icmp_hdr() == IGNORE_ERR)
     return IGNORE_ERR;
 
@@ -372,6 +374,7 @@ int8_t recv_pkt(const socket_t fd) {
     perror("[ERROR][inet_ntop]");
     return FATAL_ERR;
   }
+
   return VALID_RECV;
 }
 
@@ -382,7 +385,7 @@ void sigint_handler(int code) {
 
 int8_t ft_ping(const socket_t fd, struct sockaddr_in *dest_addr) {
 
-  struct timespec start, end, interval, global_start;
+  struct timespec start, end, interval;
   if (opt.interval)
     interval.tv_sec = (time_t)opt.interval_arg;
   else
@@ -391,7 +394,6 @@ int8_t ft_ping(const socket_t fd, struct sockaddr_in *dest_addr) {
 
   signal(SIGINT, sigint_handler);
   print_header();
-  clock_gettime(CLOCK_MONOTONIC, &global_start);
   while (run) {
 
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -399,21 +401,20 @@ int8_t ft_ping(const socket_t fd, struct sockaddr_in *dest_addr) {
     if (send_pkt(fd, dest_addr) == FATAL_ERR)
       return FATAL_ERR;
 
-    int8_t n = recv_pkt(fd);
-    if (n == FATAL_ERR)
-      return FATAL_ERR;
-    else if (n == IGNORE_ERR)
-      continue;
-    else if (n == VALID_RECV) {
+    switch (recv_pkt(fd)) {
+    case VALID_RECV:
       clock_gettime(CLOCK_MONOTONIC, &end);
       double latency = diff_ms(start, end);
       update_rtt(latency);
       print_body(latency);
+      break;
+    case FATAL_ERR:
+      return FATAL_ERR;
+    case IGNORE_ERR:
+      continue;
     }
-
     if (opt.count && (size_t)opt.count_arg == send_packet)
       break;
-
     nanosleep(&interval, NULL);
   }
   print_footer();
