@@ -210,7 +210,11 @@ void print_body(const float time) {
 }
 
 void print_footer() {
-  uint16_t percentage = (send_packet - recv_packet) / send_packet * 100;
+  uint16_t percentage;
+  if (send_packet == 0)
+    percentage = 0;
+  else
+    percentage = (send_packet - recv_packet) * 100 / send_packet;
 
   printf("--- %s ping statistics ---\n", hostname);
   printf("%ld packets transmitted, %ld packets received, %d%% packet loss\n", send_packet, recv_packet, percentage);
@@ -325,7 +329,7 @@ int8_t handle_icmp_hdr() {
     recv_pid = err_hdr.un.echo.id;
   }
 
-  if (recv_pid != getpid()) 
+  if (recv_pid != getpid())
     return IGNORE_ERR;
 
   if (icmp.type == ICMP_ECHOREPLY) {
