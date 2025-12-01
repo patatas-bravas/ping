@@ -343,8 +343,8 @@ int8_t handle_icmp_hdr() {
 
 int8_t recv_pkt(const socket_t fd) {
   struct timeval timeout;
-  timeout.tv_sec = 2.0;
-  timeout.tv_usec = 0;
+  timeout.tv_sec = 3.0;
+  timeout.tv_usec = 500;
 
   fd_set readfd;
   FD_ZERO(&readfd);
